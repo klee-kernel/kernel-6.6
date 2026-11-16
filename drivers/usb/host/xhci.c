@@ -348,23 +348,6 @@ int xhci_set_interrupter_moderation(struct xhci_interrupter *ir,
 }
 EXPORT_SYMBOL_GPL(xhci_set_interrupter_moderation);
 
-/* interrupt moderation interval imod_interval in nanoseconds */
-int xhci_set_interrupter_moderation(struct xhci_interrupter *ir,
-				    u32 imod_interval)
-{
-	u32 imod;
-
-	if (!ir || !ir->ir_set || imod_interval > U16_MAX * 250)
-		return -EINVAL;
-
-	imod = readl(&ir->ir_set->irq_control);
-	imod &= ~ER_IRQ_INTERVAL_MASK;
-	imod |= (imod_interval / 250) & ER_IRQ_INTERVAL_MASK;
-	writel(imod, &ir->ir_set->irq_control);
-
-	return 0;
-}
-
 static void compliance_mode_recovery(struct timer_list *t)
 {
 	struct xhci_hcd *xhci;
@@ -5366,9 +5349,9 @@ int xhci_gen_setup(struct usb_hcd *hcd, xhci_get_quirks_t get_quirks)
 	/* Set dma_mask and coherent_dma_mask to 64-bits,
 	 * if xHC supports 64-bit addressing */
 	if (HCC_64BIT_ADDR(xhci->hcc_params) &&
-			!dma_set_mask(dev, DMA_BIT_MASK(64))) {
+			!dma_set_mask(dev, ~0ULL)) {
 		xhci_dbg(xhci, "Enabling 64-bit DMA addresses.\n");
-		dma_set_coherent_mask(dev, DMA_BIT_MASK(64));
+		dma_set_coherent_mask(dev, ~0ULL);
 	} else {
 		/*
 		 * This is to avoid error in cases where a 32-bit USB
