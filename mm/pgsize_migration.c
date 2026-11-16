@@ -404,15 +404,6 @@ void show_map_pad_vma(struct vm_area_struct *vma, struct seq_file *m,
 	/* The pad VMA itself cannot have padding; infinite recursion */
 	BUG_ON(pad.vm_flags & VM_PAD_MASK);
 
-	/* The pad VMA should be anonymous. */
-	BUG_ON(pad->vm_file);
-
-	/* The pad VMA should be PROT_NONE. */
-	BUG_ON(pad->vm_flags & (VM_READ|VM_WRITE|VM_EXEC));
-
-	/* The pad VMA itself cannot have padding; infinite recursion */
-	BUG_ON(pad->vm_flags & VM_PAD_MASK);
-
 	if (smaps)
 		((show_pad_smaps_fn)func)(m, &pad);
 	else
