@@ -1438,13 +1438,8 @@ struct urb_priv {
 	struct	xhci_td	td[];
 };
 
-/*
- * Each segment table entry is 4*32bits long.  1K seems like an ok size:
- * (1K bytes * 8bytes/bit) / (4*32 bits) = 64 segment entries in the table,
- * meaning 64 ring segments.
- * Reasonable limit for number of Event Ring segments (spec allows 32k)
- */
-#define	ERST_MAX_SEGS	2
+/* Number of Event Ring segments to allocate, when amount is not specified. (spec allows 32k) */
+#define	ERST_DEFAULT_SEGS	2
 /* Poll every 60 seconds */
 #define	POLL_TIMEOUT	60
 /* Stop endpoint command timeout (secs) for URB cancellation watchdog timer */

@@ -333,6 +333,7 @@ static int xhci_alloc_segments_for_ring(struct xhci_hcd *xhci,
 		unsigned int max_packet, gfp_t flags)
 {
 	struct xhci_segment *prev;
+	unsigned int i, segment_num = num;
 	bool chain_links;
 
 	/* Set chain bit for 0.95 hosts, and for isoc rings on AMD 0.96 host */
@@ -340,16 +341,16 @@ static int xhci_alloc_segments_for_ring(struct xhci_hcd *xhci,
 			 (type == TYPE_ISOC &&
 			  (xhci->quirks & XHCI_AMD_0x96_HOST)));
 
-	prev = xhci_segment_alloc(xhci, cycle_state, max_packet, num, flags);
+	prev = xhci_segment_alloc(xhci, cycle_state, max_packet, segment_num++,
+				  flags);
 	if (!prev)
 		return -ENOMEM;
-	num++;
 
 	*first = prev;
-	while (num < num_segs) {
-		struct xhci_segment	*next;
+	for (i = 1; i < num_segs; i++) {
+		struct xhci_segment *next;
 
-		next = xhci_segment_alloc(xhci, cycle_state, max_packet, num,
+		next = xhci_segment_alloc(xhci, cycle_state, max_packet, segment_num++,
 					  flags);
 		if (!next) {
 			prev = *first;
@@ -361,9 +362,7 @@ static int xhci_alloc_segments_for_ring(struct xhci_hcd *xhci,
 			return -ENOMEM;
 		}
 		xhci_link_segments(prev, next, type, chain_links);
-
 		prev = next;
-		num++;
 	}
 	xhci_link_segments(prev, *first, type, chain_links);
 	*last = prev;
@@ -1864,7 +1863,8 @@ void xhci_remove_secondary_interrupter(struct usb_hcd *hcd, struct xhci_interrup
 	spin_lock_irq(&xhci->lock);
 
 	/* interrupter 0 is primary interrupter, don't touch it */
-	if (!ir || !ir->intr_num || ir->intr_num >= xhci->max_interrupters) {
+	if (!xhci->interrupters || !ir || !ir->intr_num ||
+	    ir->intr_num >= xhci->max_interrupters) {
 		xhci_dbg(xhci, "Invalid secondary interrupter, can't remove\n");
 		spin_unlock_irq(&xhci->lock);
 		return;
@@ -2289,20 +2289,20 @@ xhci_alloc_interrupter(struct xhci_hcd *xhci, int segs, gfp_t flags)
 {
 	struct device *dev = xhci_to_hcd(xhci)->self.sysdev;
 	struct xhci_interrupter *ir;
-	unsigned int num_segs = segs;
+	unsigned int max_segs;
 	int ret;
+
+	if (segs <= 0)
+		segs = ERST_DEFAULT_SEGS;
+
+	max_segs = BIT(HCS_ERST_MAX(xhci->hcs_params2));
+	segs = min_t(unsigned int, segs, max_segs);
 
 	ir = kzalloc_node(sizeof(*ir), flags, dev_to_node(dev));
 	if (!ir)
 		return NULL;
 
-	/* number of ring segments should be greater than 0 */
-	if (segs <= 0)
-		num_segs = min_t(unsigned int, 1 << HCS_ERST_MAX(xhci->hcs_params2),
-			 ERST_MAX_SEGS);
-
-	ir->event_ring = xhci_ring_alloc(xhci, num_segs, 1, TYPE_EVENT, 0,
-					 flags);
+	ir->event_ring = xhci_ring_alloc(xhci, segs, 1, TYPE_EVENT, 0, flags);
 	if (!ir->event_ring) {
 		xhci_warn(xhci, "Failed to allocate interrupter event ring\n");
 		kfree(ir);
@@ -2378,30 +2378,28 @@ xhci_create_secondary_interrupter(struct usb_hcd *hcd, int num_seg, int intr_num
 		return NULL;
 
 	spin_lock_irq(&xhci->lock);
-	/* Find available secondary interrupter, interrupter 0 is reserverd for primary */
 	for (i = 1; i < xhci->max_interrupters; i++) {
-		if ((intr_num > 0 && i == intr_num) || intr_num <= 0) {
-			if (xhci->interrupters[i] == NULL) {
-				err = xhci_add_interrupter(xhci, ir, i);
-				if (err) {
-					spin_unlock_irq(&xhci->lock);
-					goto free_ir;
-				}
-				break;
-			}
-		}
+		if (intr_num > 0 && i != intr_num)
+			continue;
+		if (xhci->interrupters[i])
+			continue;
+
+		err = xhci_add_interrupter(xhci, ir, i);
+		break;
 	}
 	spin_unlock_irq(&xhci->lock);
+
+	if (err) {
+		xhci_warn(xhci, "Failed to add secondary interrupter, max interrupters %d\n",
+			  xhci->max_interrupters);
+		xhci_free_interrupter(xhci, ir);
+		return NULL;
+	}
 
 	xhci_dbg(xhci, "Add secondary interrupter %d, max interrupters %d\n",
 		 i, xhci->max_interrupters);
 
 	return ir;
-
-free_ir:
-	xhci_free_interrupter(xhci, ir);
-
-	return NULL;
 }
 EXPORT_SYMBOL_GPL(xhci_create_secondary_interrupter);
 
